@@ -1,0 +1,206 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Default-deny all unmatched paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'preetiharde8b@gmail.com' ||
+        request.auth.token.email == 'sujeetharde5@gmail.com'
+      );
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'preetiharde8b@gmail.com' ||
+        request.auth.token.email == 'sujeetharde5@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Review item validation helper (for bounded reviews list)
+    function isValidReviewItem(item) {
+      return item is map &&
+        item.keys().hasAll(['id', 'reviewerName', 'rating', 'comment', 'date']) &&
+        item.keys().hasOnly(['id', 'reviewerName', 'rating', 'comment', 'date']) &&
+        item.id is string &&
+        item.id.size() >= 1 &&
+        item.id.size() <= 64 &&
+        item.reviewerName is string &&
+        item.reviewerName.size() >= 1 &&
+        item.reviewerName.size() <= 60 &&
+        item.rating is number &&
+        item.rating >= 1 &&
+        item.rating <= 5 &&
+        item.comment is string &&
+        item.comment.size() >= 1 &&
+        item.comment.size() <= 400 &&
+        item.date is string &&
+        item.date.size() >= 1 &&
+        item.date.size() <= 40;
+    }
+
+    // Entity Blueprint Validation: Saree (with optional bounded reviews list and optional is_deleted flag)
+    function isValidSaree(data, sareeId) {
+      return data.keys().hasAll(['id', 'name', 'price', 'image_url', 'in_stock', 'category']) &&
+        data.keys().hasOnly(['id', 'name', 'price', 'image_url', 'in_stock', 'category', 'reviews', 'is_deleted']) &&
+        data.id is string &&
+        data.id == sareeId &&
+        data.id.size() >= 1 &&
+        data.id.size() <= 128 &&
+        data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.name is string &&
+        data.name.size() >= 1 &&
+        data.name.size() <= 120 &&
+        data.price is number &&
+        data.price >= 0 &&
+        data.price <= 1000000 &&
+        data.image_url is string &&
+        data.image_url.size() >= 1 &&
+        data.image_url.size() <= 250000 &&
+        data.image_url.matches('^(/|https?://|data:image/(jpeg|png|webp);base64,).*') &&
+        data.in_stock is bool &&
+        data.category is string &&
+        data.category.size() >= 1 &&
+        data.category.size() <= 60 &&
+        (!('reviews' in data) || (
+          data.reviews is list &&
+          data.reviews.size() <= 50 &&
+          (data.reviews.size() == 0 || isValidReviewItem(data.reviews[0]))
+        )) &&
+        (!('is_deleted' in data) || data.is_deleted is bool);
+    }
+
+    // Entity Blueprint Validation: Admin
+    function isValidAdmin(data, adminId) {
+      return data.keys().hasAll(['uid', 'role']) &&
+        data.keys().hasOnly(['uid', 'role']) &&
+        data.uid is string &&
+        data.uid == adminId &&
+        data.uid.size() >= 1 &&
+        data.uid.size() <= 128 &&
+        data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.role is string &&
+        data.role.size() >= 5 &&
+        data.role.size() <= 20 &&
+        data.role == 'admin';
+    }
+
+    // Entity Blueprint Validation: StoreConfig
+    function isValidStoreConfig(data, settingId) {
+      return data.keys().hasAll(['id', 'whatsapp_number']) &&
+        data.keys().hasOnly(['id', 'whatsapp_number', 'google_verification_code', 'custom_categories', 'updated_at']) &&
+        data.id is string &&
+        data.id == settingId &&
+        data.id.size() >= 1 &&
+        data.id.size() <= 64 &&
+        data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.whatsapp_number is string &&
+        data.whatsapp_number.size() >= 10 &&
+        data.whatsapp_number.size() <= 15 &&
+        data.whatsapp_number.matches('^[0-9]+$') &&
+        (!('google_verification_code' in data) || (data.google_verification_code is string && data.google_verification_code.size() <= 128)) &&
+        (!('custom_categories' in data) || (
+          data.custom_categories is list &&
+          data.custom_categories.size() <= 30 &&
+          (data.custom_categories.size() == 0 || (data.custom_categories[0] is string && data.custom_categories[0].size() >= 1 && data.custom_categories[0].size() <= 60))
+        )) &&
+        (!('updated_at' in data) || (data.updated_at is string && data.updated_at.size() <= 64));
+    }
+
+    // Sarees Catalog Collection
+    match /sarees/{sareeId} {
+      // Public storefront can read individual valid catalog items or list catalog items with valid non-negative price
+      allow get: if isValidId(sareeId);
+      allow list: if existing().price >= 0;
+
+      // Strict schema-validated catalog creation so Admin Portal additions persist to Firestore for all visitors
+      allow create: if isValidId(sareeId) &&
+        isValidSaree(incoming(), sareeId);
+
+      // Action-Based Updates:
+      // 1. Toggling in_stock or is_deleted
+      // 2. Submitting a customer review (only 'reviews' field affected)
+      // 3. Updating full saree details
+      allow update: if isValidId(sareeId) &&
+        isValidSaree(incoming(), sareeId) &&
+        incoming().id == existing().id &&
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['in_stock']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['is_deleted']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['in_stock', 'is_deleted']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['reviews']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'price', 'image_url', 'in_stock', 'category', 'reviews', 'is_deleted'])
+        );
+
+      allow delete: if isValidId(sareeId);
+    }
+
+    // Admins Collection
+    match /admins/{adminId} {
+      allow get: if isSignedIn() &&
+        isValidId(adminId) &&
+        (request.auth.uid == adminId || isBootstrappedAdmin());
+
+      allow list: if false;
+
+      allow create: if isSignedIn() &&
+        isValidId(adminId) &&
+        isValidAdmin(incoming(), adminId) &&
+        isBootstrappedAdmin();
+
+      allow update: if isSignedIn() &&
+        isValidId(adminId) &&
+        isValidAdmin(incoming(), adminId) &&
+        incoming().uid == existing().uid &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['role']) &&
+        isBootstrappedAdmin();
+
+      allow delete: if isSignedIn() &&
+        isValidId(adminId) &&
+        isBootstrappedAdmin();
+    }
+
+    // Global Store Settings Collection
+    match /settings/{settingId} {
+      // Storefront and mobile visitors can read store settings (e.g. WhatsApp receiving phone number & Google Search Console verification tag)
+      allow get: if isValidId(settingId);
+      allow list: if false;
+
+      // Allow store setting creation and update with valid StoreConfig schema
+      allow create: if isValidId(settingId) &&
+        isValidStoreConfig(incoming(), settingId);
+
+      allow update: if isValidId(settingId) &&
+        isValidStoreConfig(incoming(), settingId) &&
+        incoming().id == existing().id &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['whatsapp_number', 'google_verification_code', 'custom_categories', 'updated_at']);
+
+      allow delete: if false;
+    }
+  }
+}

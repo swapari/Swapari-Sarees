@@ -1,0 +1,6 @@
+{
+  "name": "Swapari Saree — Heritage Handloom D2C Storefront & Admin",
+  "description": "A luxury Indian handloom and silk saree e-commerce storefront with direct WhatsApp Business checkout and a real-time Firebase inventory management dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

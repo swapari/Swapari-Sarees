@@ -1,0 +1,128 @@
+{
+  "entities": {
+    "Saree": {
+      "title": "Saree",
+      "description": "Represents a handwoven silk or handloom saree in the Swapari Saree catalog, including persisted customer reviews.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the saree document.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display title of the saree (e.g., Pure Katan Silk Banarasi).",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "price": {
+          "type": "number",
+          "description": "Retail price in INR (e.g., 8999)."
+        },
+        "image_url": {
+          "type": "string",
+          "description": "2:3 vertical aspect ratio product photograph URL, path, or compressed data URI.",
+          "minLength": 1,
+          "maxLength": 250000,
+          "pattern": "^(/|https://|data:image/(jpeg|png|webp);base64,).*"
+        },
+        "in_stock": {
+          "type": "boolean",
+          "description": "Real-time availability status for WhatsApp checkout."
+        },
+        "category": {
+          "type": "string",
+          "description": "Handloom weave category (e.g., Maheshwari, Paithani, Narayanpeth, Kanjivaram, Mysore silk, Gadwal, Banarasi).",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "reviews": {
+          "type": "array",
+          "description": "Bounded list (max 50) of customer star ratings and text comments persisted on the saree document."
+        },
+        "is_deleted": {
+          "type": "boolean",
+          "description": "Flag indicating whether the admin has removed this saree from the public storefront across all devices."
+        }
+      },
+      "required": ["id", "name", "price", "image_url", "in_stock", "category"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Authorized store administrator record keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the administrator.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "role": {
+          "type": "string",
+          "description": "Role designation for the administrator.",
+          "enum": ["admin"],
+          "minLength": 5,
+          "maxLength": 20
+        }
+      },
+      "required": ["uid", "role"]
+    },
+    "StoreConfig": {
+      "title": "StoreConfig",
+      "description": "Global store settings including the active WhatsApp order receiving phone number.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the store configuration document (e.g., store_config).",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "whatsapp_number": {
+          "type": "string",
+          "description": "10-15 digit WhatsApp business order receiving phone number without plus prefix (e.g. 919168612319).",
+          "minLength": 10,
+          "maxLength": 15,
+          "pattern": "^[0-9]+$"
+        },
+        "google_verification_code": {
+          "type": "string",
+          "description": "Google Search Console HTML tag verification token for <meta name='google-site-verification'>.",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "custom_categories": {
+          "type": "array",
+          "description": "Bounded list (max 30) of custom saree weave categories added by the administrator."
+        },
+        "updated_at": {
+          "type": "string",
+          "description": "ISO timestamp of last configuration update.",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": ["id", "whatsapp_number"]
+    }
+  },
+  "firestore": {
+    "/sarees/{sareeId}": {
+      "schema": { "$ref": "#/entities/Saree" },
+      "description": "Catalog collection storing all Swapari Saree products, real-time stock status, and customer reviews."
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/Admin" },
+      "description": "Collection of verified store administrators authorized to mutate inventory."
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/StoreConfig" },
+      "description": "Global store settings collection used for real-time synchronization across devices."
+    }
+  }
+}
